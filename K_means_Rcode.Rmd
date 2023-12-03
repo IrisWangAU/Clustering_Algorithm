@@ -1,0 +1,742 @@
+---
+title: "An analysis of the global dietary patterns using K-means clustering algorithm"
+author: "Iris Wang"
+date: "2023-02-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+# load libraries
+library(tidyverse)
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(knitr)
+
+```
+
+
+# {.tabset}
+
+## Introduction
+
+The analysis of global dietary patterns is crucial in understanding the complex relationship between food, nutrition, and health at a global level. It is becoming increasingly important in shaping public health policies, food security initiatives, and environmental conservation efforts as the world population grows and becomes more interconnected.
+
+Factors such as income, education, and urbanization influence the global diet structure, and by analyzing data on these factors, researchers can identify patterns and trends in food consumption and develop policies to address inequalities in access to healthy food. The exploration of global diet structure can also highlight the importance of cultural and dietary diversity, enabling policymakers and researchers to develop strategies to promote the preservation and celebration of cultural and culinary heritage.
+
+This report covers the process of analyzing global dietary patterns using the k-means clustering algorithm, employing a curated dataset sourced from Nu3. The dataset contains information on the consumption quantity of 11 food categories across 130 countries worldwide during the year 2013. CO2 emissions information is also available for these food types, offering a general overview of each country's food carbon footprint.
+
+However, it should be noted that the CO2 emission figures in the dataset are calculated and not actual data, which may be subject to recall bias or misreporting. Furthermore, the generalizability of the findings may be limited due to the absence of data for some countries or years.
+
+## Data
+
+The dataset contains four variables: 
+
+- **country:** 130 countries researched.
+- **food_category:** 11 food types produced for consumption, including 7 animal produce (pork, poultry, beef, lamb & goat,    fish, eggs, and milk – including cheese) and 4 non-animal produce (wheat and wheat products, rice,         soybeans, nuts- including peanut butter).
+- **consumption:** 
+the amount (kg) of produce supplied for consumption per capital in year 2013.
+- **co2-emission:** 
+the amount (kg) of CO2 produced for each food type per person in year 2013.
+
+The following are the first six rows of the dataset:
+
+
+```{r, echo=FALSE}
+
+# load data
+diet.df <- read.csv("data/food_consumption.csv")
+
+diet.df.6 <- head(diet.df,6)
+
+kable(diet.df.6, format = "markdown", align = "c")
+
+```
+
+In this report, two primary research inquiries will be addressed utilizing the provided dataset:
+
+1. What are the similarities and divergences among dietary structures across various nations?
+2. Is it possible to determine an individual's geographic location based on their dietary patterns?
+
+In order to examine the two questions, the k-means clustering technique can be employed to categorize countries with comparable levels of consumption for the 11 food categories into distinct clusters. 
+Accordingly, the data must be transformed to arrange the food categories into columns, with each row indicating the quantity of consumption for each food type in these countries.
+
+The following are the first six rows of the dataset after the transformation:
+
+```{r, echo=FALSE}
+# spread the food categories into columns
+model.df <- diet.df %>% select(-4) %>%
+  spread(food_category, consumption) %>%
+  column_to_rownames(var = "country") # convert the country names into row names
+
+
+model.df.6 <- head(model.df,6)
+
+kable(model.df.6, format = "markdown", align = "c")
+
+
+```
+
+## Methodology
+
+### K-means Clustering Algorithem
+To investigate the two research questions previously stated, utilizing cluster analysis would be advantageous since it involves grouping similar records based on measurements taken from those records. This method allows us to categorize the 130 countries into distinct clusters based on their consumption levels across 11 food categories. By doing so, we can examine the similarities and differences in eating habits between these countries and pave the way for more detailed analysis into the underlying reasons and implications behind these observations.
+
+There are two general categories of clustering algorithms: hierarchical and non-hierarchical methods. Hierarchical methods arrange clusters into a natural hierarchy, whereas non-hierarchical methods designate a pre-specified number of clusters and assign records accordingly. 
+Given that the dataset being studied pertains to countries across the globe and we aim to identify potential relationships between geographic locations and dietary patterns, it would be advantageous to create clusters based on their geographical features, such as by continent. As a result, the k-means clustering approach will be utilized for analysis.
+
+The k-means clustering technique generates clusters by measuring the distance between records and clusters to minimize dispersion within each cluster. It begins with an initial partition of the records into K clusters and then adjusts the partition to decrease the sum of distances between each record and its cluster centroid. This adjustment involves assigning each record to the nearest of the k centroids from the previous partition, resulting in a new partition with a smaller sum of distances. The means of the new clusters are computed, and the improvement process is repeated until the improvement is negligible.
+
+\
+
+#### **Distance between records**
+
+The distance between records is measured using the Euclidean Distance, which is defined by 
+$$d_{ij} = \sqrt{(x_{i1}-x_{j1})^2+(x_{i2}-x_{j2})^2+\cdots +(x_{in}-x_{jn})^2}. $$
+Where $d_{ij}$ is a distance matrix between records $i$ and $j$, and $(x_{i1},\cdots, x_{in})$, $(x_{j1},\cdots, x_{jn})$ are the vector of $n$ measurements for the records $i$ and $j$.
+
+
+For example, the measurements for Argentina and Australia are listed in the table:
+
+```{r Australia and Agentina, echo=FALSE}
+kable(model.df [c(4,6),],format = "markdown", align = "c")
+```
+
+The measurement vector for these two countries can be written as $(55.48,11.39,4.36,1.56,195.08,0.49,10.51,38.66,8.77,0,103.11)$ and $(33.86,8.51,17.69,9.87,234.49,8.73,24.14,46.12,11.03,0.19,70.46)$. And then distance between these two observations is:
+$$ d_{46} = \sqrt{(55.48-33.86)^2+(11.39-8.51)^2+(4.36-17.69)^2+\cdots+(103.11-70.46)^2} = 482.20$$
+In order to prevent biases stemming from variables with larger scales that may affect the distance calculation, continuous measurements are first normalized prior to calculating the Euclidean distance. This normalization process scales the measurements such that each variable has an average of 0 and a standard deviation of 1.
+
+```{r, echo=FALSE}
+# get average and standard deviation of consumption for beef of all 130 countries
+stats<- model.df %>%
+  select(Beef) %>%
+  summarise(Average = mean(Beef),
+            Standard_Deviation = sd(Beef))
+
+```
+
+
+For instance, the average produce amount for consumption of beef per capital across the $130$ nations is $12.123$ and the standard deviation is $9.654$. Then the normalized consumption for Australia is therefore $(33.86-12.123)/9.654 = 2.252$.
+
+\
+
+#### **Distance between clusters**
+
+The distance between clusters is measured using the Euclidean distance between the centroid of each cluster. The centroid is the mean value of all the points in the cluster, and the distance between centroids is calculated using the standard formula (as above) for Euclidean distance.
+
+\
+
+#### **Choices of Number of clusters**
+
+This report initially selects a particular value of k and subsequently applies two techniques to verify the appropriateness of this choice, which are Elbow method and Silhouette method.
+
+- **The Elbow method**
+
+The elbow method is based on noticing that the within-cluster sum of squares (WSS) decreases with an increasing number of clusters, but at a certain point, the rate of decrease slows down, resulting in a bend in the plot resembling an elbow. To apply the Elbow method, we perform k-means clustering for a range of k values and compute the WSS for each. Then, we plot the WSS values against the number of clusters (k).
+
+- **The Average Silhouette method**
+
+The average silhouette method evaluates the clustering results in k-means by comparing an object's similarity to its own cluster versus other clusters. It starts by computing the "intra-cluster distance," or the average distance between each object and all others in its cluster (represented as $a$). Then, it calculates the "nearest-cluster distance," or the average distance between each object and all objects in the nearest neighboring cluster (represented as $b$). 
+
+Using these values, it computes the silhouette coefficient for each object as $\frac{(b-a)}{max(a,b)}$, which is called the average silhouette score. 
+
+The silhouette score ranges from -1 to 1, with higher scores indicating better clustering results. A score of 1 means that objects are highly similar to their own cluster and dissimilar to other clusters, while a score of -1 means the opposite. Scores close to zero indicate that objects are located at the boundary between clusters.
+
+
+## Analysis - Question 1
+### Question 1: What are the similarities and divergences among dietary structures across various nations?
+
+To address this question, the first step would be to categorize the food types into animal and non-animal products and then generate a scatter plot of the 130 countries. The 11 animal products are Beef, Eggs, Fish, Lamb & Goat, Milk including cheese, Pork and Poultry, while the 4 non-animal products are Nuts including Peanut Butter, Rice, Soybeans and Wheat and Wheat products. The scatter plot displays the dietary patterns of countries based on two categories: plant-based and animal-based diets. Each country is marked with a corresponding label. 
+
+```{r, echo=FALSE}
+# divide the variables into Animal and Non_animal products
+type.df <- diet.df %>% 
+  select(-4) %>%
+  spread(food_category, consumption) %>%
+  mutate(Animal = Beef + Eggs + Fish + `Lamb & Goat` + `Milk - inc. cheese` + Pork + Poultry,
+         Non_Animal = `Nuts inc. Peanut Butter` + Rice + Soybeans + `Wheat and Wheat Products`) %>%
+  select(country, Animal, Non_Animal)
+
+# create a scatter plot showing the dietary patterns of all 130 countries
+ggplot(type.df, aes(x = Non_Animal, y = Animal, label = country))+
+  geom_label() +
+  labs(title = "Dietary Patterns of 130 countries worldwide",
+      y ="Consumption of Animal based food",
+       x = "Consumption of Plant based food") 
+
+```
+
+Upon initial observation, the data points form three distinct clusters. The first cluster consists of countries that have a high consumption of animal products and a moderate intake of non-animal products. The second cluster comprises countries that primarily rely on plant-based diets. The third cluster includes countries with low consumption of both types of food. In this case, we can set the number of clusters (K) to 3.\
+\
+
+#### Choices of K
+
+Since the fundamental concept of k-means clustering is to establish clusters in a manner that minimizes the total within-cluster variation, we can use different methods to examine our choice of k to see its performance.
+
+This report will cover two techniques (as explained in the Methodology tab) to compare the variation within clusters:
+1. Elbow method
+2. Average Silhouette method
+
+- **The Elbow method**
+
+To apply the elbow method, the value of k is varied from 1 to 10 and the WSS (Within-Cluster Sum of Squares) is calculated for each k. Then, the WSS values are plotted against their corresponding k values.
+
+```{r, echo=FALSE}
+set.seed(1)
+
+# normalize the data
+model.df.norm <- 
+  model.df %>% 
+  scale()
+
+# function to compute total within-cluster sum of square
+wss <- function(k) {
+  kmeans(model.df.norm, k, nstart = 25)$tot.withinss
+}
+
+# compute and plot wss for k=1 to k=15
+k.values <- 1:10
+
+# extract wss for 2-15 clusters
+
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+     type = "b", pch = 19, frame = FALSE,
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of squares",
+     main = "Optimal number of Clusters")
+
+```
+
+Based on the plot, there is no clear evidence of a substantial change in the rate of decrease for the within-cluster sum of squares. This suggests that there is no distinct "elbow point" in the plot, and our decision to choose k = 3 appears to be suitable.
+
+To further validate the suitability of our selected k, we can employ the Silhouette method.
+
+- **The Average Silhouette method**
+
+In order to apply the silhouette method, we select a range of values for k (from 1 to 10) and calculate the silhouette score for each k value. Subsequently, we create a plot to visualize the relationship between the average silhouette score and the corresponding k value.
+
+```{r, echo=FALSE}
+
+set.seed(2)
+fviz_nbclust(model.df.norm, kmeans, method = "silhouette")
+
+```
+
+The plot indicates that the optimal number of clusters is two, as it maximizes the average silhouette values. The second optimal number of clusters is three.
+
+Since both approaches suggest three as an appropriate number of clusters, we can proceed with the analysis and extract the results using the pre-determined value of k, which is 3.\
+\
+
+#### Results
+
+We will now utilize the `kmeans()` function in the R programming language to apply the k-means algorithm, which involves using the eleven food categories as measurements for all 130 countries.
+
+```{r, echo=FALSE}
+# run kmeans algorithm
+set.seed(123)
+km_3 <- kmeans(model.df.norm, centers = 3, nstart = 25)
+
+
+```
+By using this method, the countries have been partitioned into three clusters. The first cluster contains 45 countries, the second cluster contains 51 countries, and the third cluster contains 34 countries.
+
+
+After extracting the clusters, we incorporate them into our original data and proceed to calculate the mean values of each food category for the three clusters, which encompass all 130 countries.\
+\
+
+```{r, echo=FALSE}
+average.df <- 
+  model.df %>%
+  mutate (Clusters = km_3$cluster) %>%
+  group_by(Clusters) %>%
+  summarise_all(mean)
+
+kable(average.df, format = "markdown", align = "c", caption = "Average Consumption of food in each Cluster")
+
+```
+
+The table clearly displays that the k-means algorithm has segregated the dataset into three distinct clusters:
+
+1. Among all the clusters, Cluster 1 exhibits the highest average consumption of animal products such as Beef, Eggs, Milk (including cheese), and Pork. However, the countries within this cluster consume a moderate amount of Fish, Lamb and Poultry, and the least amount of rice in comparison to the other clusters.
+
+2. In contrast, countries belonging to Cluster 2 have the lowest consumption levels across almost all food categories, except for their heavy reliance on Rice. Their rice consumption is twice that of Cluster 2 and seven times that of Cluster 1.
+
+3. Cluster 3 countries exhibit a dietary pattern similar to that of Cluster 1, but with a greater reliance on Fish, Lamb, and Poultry as opposed to Beef, Eggs, Pork, and Milk. Additionally, they consume a significant amount of Wheat products when compared to Cluster 2.
+create a profile plot, which displays the mean values of each food category for the three clusters comprising all 130 countries.\
+\
+
+A scatter plot can also be utilized to visualize the mean consumption levels of each food category for the three clusters.
+
+
+```{r, echo=FALSE}
+
+average.df.clean <- average.df %>%
+  # abbreviate column names
+  rename(Lamb = `Lamb & Goat`,
+         Milk = `Milk - inc. cheese`,
+         Nuts = `Nuts inc. Peanut Butter`,
+         Wheat = `Wheat and Wheat Products`) %>%
+  gather(key = "food_category", value = "average_consumption",-1)
+
+ggplot(average.df.clean, aes(x = food_category, y = average_consumption, color = factor(Clusters)))+
+  geom_point()+
+  scale_color_brewer(palette = "Dark2")+
+  xlab("Food Categories")+
+  ylab("Average Consumption in each cluster")+
+  labs(title = "Profile Plot",
+       color = "Clusters")
+
+```
+
+Upon analyzing the plot, it is evident that the clusters are primarily distinguished by the consumption levels of Milk, Wheat, and Poultry, while exhibiting comparable consumption levels for Soybeans and Nuts. Furthermore, Cluster 2 demonstrates the highest production levels for Rice consumption, but the lowest consumption levels for all other food categories.
+
+
+## Analysis - Question 2
+
+### Question 2: Is it possible to determine an individual's geographic location based on their dietary patterns?
+\
+
+#### Cluster Analysis on continent level
+
+After analyzing question one, we have learned that global dietary patterns can be categorized into three distinct groups. To gain a deeper understanding of the cultural influences and geographic relationships that shape these eating habits, we can conduct a more thorough examination of the countries within each of the three clusters, which can be illustrated by displaying their respective continents.
+
+
+```{r, message=FALSE, echo=FALSE}
+continents <- read.csv("data/continents.csv")
+
+continents <- continents %>% select(Entity, Continent) %>%
+  rename(country = Entity) %>%
+  mutate(country = case_when(country == "Hong Kong" ~ "Hong Kong SAR. China",
+                             country == "Czechia" ~ "Czech Republic",
+                             country == "North Macedonia" ~ "Macedonia",
+                             country == "Eswatini" ~ "Swaziland",
+                             country == "Taiwan" ~ "Taiwan. ROC",
+                             country == "United States" ~ "USA",
+                             TRUE ~ country))
+model.continents <- model.df %>%
+  rownames_to_column(var = "country") %>%
+  mutate(cluster = km_3$cluster) %>%
+  select(country, cluster) %>%
+  left_join(continents, by = "country") %>%
+  group_by(cluster, Continent) %>%
+  summarise(country = n())
+
+
+
+continents.sum <- aggregate(model.continents$country, by = list(model.continents$Continent),
+                            FUN = sum) %>%
+  rename(Continent = Group.1,
+         total = x)
+
+
+model.continents.percent <- model.continents %>% left_join(continents.sum, by = "Continent") %>%
+  mutate(percentage = round(country/total*100,0))
+
+```
+
+
+```{r, echo=FALSE}
+ggplot(data = model.continents.percent, aes(x = Continent, y = country, fill = factor(cluster))) +
+  geom_bar(stat = "identity", 
+           position = "dodge")+
+  geom_text(aes(label = paste(percentage, "%")),position = position_dodge(width = 0.9), vjust = -0.5)+
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Counts of Countries in Six Continents by Cluster",
+       x = "Continents",
+       y = "Counts of Countries",
+       fill = "Clusters")
+
+```
+
+Based on the information displayed in the bar chart, we can draw the following conclusions about the clusters:
+
+Cluster 1 includes the majority (87%) of European countries.
+Cluster 2 includes the majority (81%) of African countries.
+Cluster 3 includes all of the countries in Oceania.
+Approximately half of the countries in Asia and North America are in Cluster 2, while a significant proportion (41% and 29%, respectively) are in Cluster 3.
+Half of the countries in South America are in Cluster 1, while the remainder are split between Cluster 2 (30%) and Cluster 3 (20%).
+
+
+Furthermore, we can visualize the structure and composition of the three clusters with respect to various continents.
+
+```{r, echo=FALSE}
+
+cluster.percent <- model.continents %>%
+  mutate(cluster_total = case_when(cluster == 1 ~ km_3$size[1],
+                                   cluster == 2 ~ km_3$size[2],
+                                   cluster == 3 ~ km_3$size[3]),
+         cluster_percentage = round(country/cluster_total*100,0))
+
+```
+
+```{r Cluster percentage, echo=FALSE}
+
+ggplot(cluster.percent, aes(x = "", y = cluster_percentage, fill = Continent)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~cluster, ncol = 3) +
+  coord_polar("y", start = 0) +
+  labs(title = "Distribution of Continents in Each Cluster", fill = "Continent") +
+  theme_void() +
+  theme(legend.position = "bottom")+
+  scale_fill_brewer(palette = "Dark2")
+
+
+```
+
+The charts illustrate that Cluster 1 is primarily composed of European countries, while Cluster 2 comprises a substantial number of African and Asian countries. Additionally, a considerable proportion of countries in Asia and the American continents make up Cluster 3.
+
+\
+
+#### Predictions using the model
+
+By grouping an individual into one of three clusters based on their yearly consumption of the 11 types of food, we can use the above analysis to predict their potential geographical location, thus addressing question 2.
+
+In order to group an individual into one of the three clusters, we compute the Euclidean distance between their measurements and the centroid of each cluster. For instance, the individual has the following dietary structure:
+
+```{r, echo=FALSE}
+david.df <- data.frame(
+  food_category = c("Pork", "Poultry", "Beef", "Lamb & Goat", "Fish", "Eggs","Milk - inc. cheese", "Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"),
+  consumption = c(24.14,46.12,33.86,9.87,17.69,8.51,234.49,70.46,11.03,0.19,8.73)
+)
+
+david.df.clean <- david.df %>% spread(food_category, consumption)
+
+kable(david.df.clean, format = "markdown", align = "c")
+
+```
+
+
+From the k-means algorithm, we can have the centroid information of each cluster:
+
+```{r, echo=FALSE}
+
+centroid.df <- km_3$centers
+
+kable(average.df, format = "markdown", align = "c")
+
+```
+
+
+From the two tables, we can compute the following distance by Euclidean method:
+
+1. The distance between David and the centroid of Cluster 1 is:
+$$\sqrt{(17.85-33.86)^2+(12.68-8.51)^2+(16.99-17.69)^2+\cdots+(94.65-70.46)^2} = 47.40$$
+
+2. The distance between David and the centroid of Cluster 2 is:
+$$\sqrt{(6.22-33.86)^2+(4.31-8.51)^2+(13.38-17.69)^2+\cdots+(31.45-70.46)^2} = 197.33 $$
+
+3. The distance between David and the centroid of Cluster 3 is:
+$$\sqrt{(13.40-33.86)^2+(7.96-8.51)^2+(23.55-17.69)^2+\cdots+(101.13-70.46)^2} = 114.94$$
+
+The analysis indicates that the distance between the individual and centroid of Cluster 1 is the smallest compared to the other clusters. As a result, according to the k-means algorithm, it is highly probable that David is located in countries belonging to Cluster 1, which primarily consists of European countries and some developed nations in Asia and the Americas.
+
+
+## Conclusion
+
+In summary, our analysis indicates that significant differences exist in dietary patterns among countries worldwide in the year 2013. By using the k-means clustering algorithm, we identified three distinct dietary clusters, with Cluster 1 mainly relying on animal-based products, while Cluster 3 countries tend to consume more plant-based foods. The cultural and geographical factors, such as food availability, religious practices, and economic development, influence these dietary patterns.
+
+Moreover, our findings highlight the potential to narrow down the location of an individual based on their eating habits, as regional food availability and cultural practices heavily influence the types of foods consumed. Policymakers can use this knowledge to develop targeted interventions to promote healthy eating habits and address dietary-related health issues around the world.
+
+It is essential to understand these dietary patterns and their underlying cultural and regional factors to make informed decisions about food choices and develop effective interventions to promote healthy eating habits. Although the CO2 emissions figures in the dataset are not actual data, the insights derived from this analysis can still serve as a valuable resource for policymakers and researchers.
+
+## References
+
+Kulma, K. (2020). *Food Consumption and CO2 Emissions*, 
+https://github.com/rfordatascience/tidytuesday/tree/master/data/2020/2020-02-18 \
+
+nu3 Nutrition Experts. (2019). *Food carbon footprint index 2018*,
+https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018\
+
+Shmueli, G., Bruce, P. C., Yahav, I., Patel, N. R., & Lichtendahl Jr, K. C. (2017). *Data mining for business analytics: concepts, techniques, and applications in R* (pp. 338-362). Wiley.  
+
+Kaufman, L., & Rousseeuw, P. J. (1990). *Finding groups in data: An introduction to cluster analysis*. John Wiley & Sons, Inc.
+
+Popkin, B. M. (2019). *The nutrition transition and its health implications in lower-income countries. Public health nutrition*, 22(1), 1-8.
+
+Hawkesworth, S., Dangour, A. D., & Johnston, D. (2010). *A review of the key issues related to the globalisation of food and agriculture*. London: Centre for Food Policy.
+
+
+## Appendix
+
+### R codes used in the report
+
+\
+
+#### Rmarkdown set up and libraries
+
+```{r, include=TRUE, eval=FALSE}
+# the setup for Rmarkdown
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+# load libraries
+library(tidyverse)
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(knitr)
+
+```
+
+\
+
+#### Data
+
+```{r, include=TRUE, eval=FALSE}
+
+# load original data
+diet.df <- read.csv("data/food_consumption.csv")
+
+diet.df.6 <- head(diet.df,6)
+
+# show the first 6 rows of the original dataset in the Data tab
+kable(diet.df.6, format = "markdown", align = "c")
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+# Data transformation for modelling
+# spread the food categories into columns
+model.df <- diet.df %>% select(-4) %>%
+  spread(food_category, consumption) %>%
+  column_to_rownames(var = "country") # convert the country names into row names
+
+
+model.df.6 <- head(model.df,6)
+# show the first 6 rows of data in the Data tab
+kable(model.df.6, format = "markdown", align = "c")
+
+
+```
+
+\
+
+#### Methodology
+
+```{r, include=TRUE, eval=FALSE}
+# Create the table of measurements for Argentina and Australia
+kable(model.df [c(4,6),],format = "markdown", align = "c")
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+# get average and standard deviation of consumption for beef of all 130 countries
+stats<- model.df %>%
+  select(Beef) %>%
+  summarise(Average = mean(Beef),
+            Standard_Deviation = sd(Beef))
+
+stats
+
+```
+
+
+
+\
+
+#### Analysis - Question 1
+
+```{r, include=TRUE, eval=FALSE}
+
+# divide the variables into Animal and Non_animal products
+type.df <- diet.df %>% 
+  select(-4) %>%
+  spread(food_category, consumption) %>%
+  mutate(Animal = Beef + Eggs + Fish + `Lamb & Goat` + `Milk - inc. cheese` + Pork + Poultry,
+         Non_Animal = `Nuts inc. Peanut Butter` + Rice + Soybeans + `Wheat and Wheat Products`) %>%
+  select(country, Animal, Non_Animal)
+
+# create a scatter plot showing the dietary patterns of all 130 countries
+ggplot(type.df, aes(x = Non_Animal, y = Animal, label = country))+
+  geom_label() +
+  labs(title = "Dietary Patterns of 130 countries worldwide",
+      y ="Consumption of Animal based food",
+       x = "Consumption of Plant based food") 
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+
+set.seed(1)
+
+# normalize the data
+model.df.norm <- 
+  model.df %>% 
+  scale()
+
+# function to compute total within-cluster sum of square
+wss <- function(k) {
+  kmeans(model.df.norm, k, nstart = 25)$tot.withinss
+}
+
+# compute and plot wss for k=1 to k=15
+k.values <- 1:10
+
+# extract wss for 2-15 cluster
+wss_values <- map_dbl(k.values, wss)
+
+# plot the wss based on different number of K
+plot(k.values, wss_values,
+     type = "b", pch = 19, frame = FALSE,
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of squares",
+     main = "Optimal number of Clusters")
+
+```
+
+
+
+```{r, include=TRUE, eval=FALSE}
+
+set.seed(2)
+# Create a plot of the average silhouette score for different K
+fviz_nbclust(model.df.norm, kmeans, method = "silhouette")
+
+```
+
+
+
+```{r, include=TRUE, eval=FALSE}
+# run kmeans algorithm
+set.seed(123)
+km_3 <- kmeans(model.df.norm, centers = 3, nstart = 25)
+
+# get the size of each cluster
+km_3$size
+
+
+```
+
+```{r, include=TRUE, eval=FALSE}
+# extract the average comsumption of food in each cluster
+average.df <- 
+  model.df %>%
+  mutate (Clusters = km_3$cluster) %>%
+  group_by(Clusters) %>%
+  summarise_all(mean)
+
+# show the average information in a table
+kable(average.df, format = "markdown", align = "c", caption = "Average Consumption of food in each Cluster")
+
+
+```
+
+\
+
+#### Analysis - Question 2
+
+```{r, include=TRUE, eval=FALSE}
+# load continents information
+continents <- read.csv("data/continents.csv")
+
+# join the continents with the dataset for modelling
+continents <- continents %>% select(Entity, Continent) %>%
+  rename(country = Entity) %>%
+  mutate(country = case_when(country == "Hong Kong" ~ "Hong Kong SAR. China",
+                             country == "Czechia" ~ "Czech Republic",
+                             country == "North Macedonia" ~ "Macedonia",
+                             country == "Eswatini" ~ "Swaziland",
+                             country == "Taiwan" ~ "Taiwan. ROC",
+                             country == "United States" ~ "USA",
+                             TRUE ~ country))
+model.continents <- model.df %>%
+  rownames_to_column(var = "country") %>%
+  mutate(cluster = km_3$cluster) %>%
+  select(country, cluster) %>%
+  left_join(continents, by = "country") %>%
+  group_by(cluster, Continent) %>%
+  summarise(country = n())
+
+
+# get the total number of continents in each cluster
+continents.sum <- aggregate(model.continents$country, by = list(model.continents$Continent),
+                            FUN = sum) %>%
+  rename(Continent = Group.1,
+         total = x)
+
+# prepare the percentage figures for plotting
+model.continents.percent <- model.continents %>% left_join(continents.sum, by = "Continent") %>%
+  mutate(percentage = round(country/total*100,0))
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+# Show a bar chart for the counts of countries in different continents by cluster
+ggplot(data = model.continents.percent, aes(x = Continent, y = country, fill = factor(cluster))) +
+  geom_bar(stat = "identity", 
+           position = "dodge")+
+  geom_text(aes(label = paste(percentage, "%")),position = position_dodge(width = 0.9), vjust = -0.5)+
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Counts of Countries in Six Continents by Cluster",
+       x = "Continents",
+       y = "Counts of Countries",
+       fill = "Clusters")
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+# create a dataframe show the distribution of continents in each cluster
+cluster.percent <- model.continents %>%
+  mutate(cluster_total = case_when(cluster == 1 ~ km_3$size[1],
+                                   cluster == 2 ~ km_3$size[2],
+                                   cluster == 3 ~ km_3$size[3]),
+         cluster_percentage = round(country/cluster_total*100,0))
+
+
+```
+
+
+
+```{r, include=TRUE, eval=FALSE}
+# visualize the structure and composition of the three clusters with respect to various continents
+ggplot(cluster.percent, aes(x = "", y = cluster_percentage, fill = Continent)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~cluster, ncol = 3) +
+  coord_polar("y", start = 0) +
+  labs(title = "Distribution of Continents in Each Cluster", fill = "Continent") +
+  theme_void() +
+  theme(legend.position = "bottom")+
+  scale_fill_brewer(palette = "Dark2")
+
+```
+
+
+
+
+```{r, include=TRUE, eval=FALSE}
+# Create a dataframe for the individual measurements
+david.df <- data.frame(
+  food_category = c("Pork", "Poultry", "Beef", "Lamb & Goat", "Fish", "Eggs","Milk - inc. cheese", "Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"),
+  consumption = c(24.14,46.12,33.86,9.87,17.69,8.51,234.49,70.46,11.03,0.19,8.73)
+)
+
+david.df.clean <- david.df %>% spread(food_category, consumption)
+
+kable(david.df.clean, format = "markdown", align = "c")
+
+```
+
+
+```{r, include=TRUE, eval=FALSE}
+
+# get the centroid figures for each clusters
+centroid.df <- km_3$centers
+
+kable(average.df, format = "markdown", align = "c")
+
+
+```
+
+
+
+# {-}
+
+
+
+
